@@ -1,0 +1,17 @@
+{
+  "name": "polymarket-kalshi-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "ingestion",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:ingestion": "npm run dev --workspace ingestion",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
+  }
+}
