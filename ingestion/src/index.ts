@@ -1,10 +1,12 @@
 import { pool } from "./db.js";
+import { config } from "./config.js";
+import { runAutoBackfillJob } from "./jobs/auto-backfill.js";
 import { runCleanupJob } from "./jobs/cleanup.js";
 import { runMarketSyncJob } from "./jobs/sync-markets.js";
 import { runTradeSyncJob } from "./jobs/sync-trades.js";
 import { runRefreshAggregatesJob } from "./jobs/refresh-aggregates.js";
 
-const pollSeconds = Number(process.env.POLL_SECONDS ?? 60);
+const pollSeconds = config.pollSeconds;
 
 async function safeRun(name: string, fn: () => Promise<void>) {
   try {
@@ -23,6 +25,8 @@ async function tick() {
 }
 
 async function boot() {
+  await safeRun("auto-backfill", runAutoBackfillJob);
+
   await safeRun("market-sync", runMarketSyncJob);
   await tick();
 

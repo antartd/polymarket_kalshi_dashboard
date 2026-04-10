@@ -1,38 +1,28 @@
-# MVP Specification
+# MVP Specification (Implemented Scope)
 
 ## Product goal
 
-Create a clean local dashboard that compares historical trading volume between Polymarket and Kalshi.
+Локальный публичный dashboard для сравнения торгового объёма Polymarket и Kalshi с удобным UX и стабильными live-обновлениями.
 
-The dashboard is public, without login, and must feel like a polished demo rather than a raw internal tool.
+## Core requirements
 
-## Required features
+## 1) Main comparison chart
 
-## 1. Main hero chart
+- объединённый график по платформам
+- диапазоны: `7d`, `30d`, `90d`, `all`
+- daily aggregation
+- line/bar mode switch
+- platform visibility toggles (`Kalshi`, `Polymarket`, `Total`)
+- rich tooltip (values + shares + edge direction)
 
-A primary line chart displayed in the hero section.
+Range behavior:
 
-Requirements:
-- show **both platforms on the same chart**
-- X axis = date
-- Y axis = trading volume in USD
-- separate line per platform
-- legend with visual color distinction
-- chart should update according to selected filters
-- chart should show empty-state messaging when no categories are selected or no data matches filters
+- finite ranges anchored к текущему UTC дню
+- day-padding (пропуски -> `0`) для стабильной геометрии
 
-Supported time ranges:
-- 7 days
-- 30 days
-- 90 days
-- all time
+## 2) Category filtering
 
-Preferred aggregation:
-- daily
-
-## 2. Category filtering
-
-Canonical category list:
+Canonical categories:
 
 - sports
 - crypto
@@ -44,137 +34,76 @@ Canonical category list:
 - other
 
 Requirements:
-- multi-select toggles or checkbox filter group
-- enabled/disabled categories must affect all charts and KPI blocks
-- if all categories are deselected, show a clear empty state message
-- category selection must apply consistently across the dashboard
 
-## 3. Market share pie chart
+- multi-select category chips
+- фильтр влияет на все виджеты
+- если все категории выключены -> явный empty state
 
-A secondary visualization showing volume share distribution by category.
+## 3) Category comparison block
 
-Requirements:
-- based on filtered data
-- can show overall combined market share by category for current date range
-- legend required
-- handle no-data state gracefully
+- сравнение Kalshi vs Polymarket по каждой категории
+- абсолютные значения + доли:
+  - доля платформы внутри категории
+  - доля платформы от общего объёма
+- визуальные горизонтальные bars
+- desktop table layout + mobile card layout
 
-## 4. Period-over-period delta
+## 4) Source modes
 
-Show percentage change in trading volume.
+- `Dune Snapshot` по умолчанию
+- `Live API` по переключателю
+- отображение source metadata:
+  - snapshot generated/next refresh
+  - live stream status + last update
 
-Definition:
-- compare selected period versus immediately preceding equivalent period
+## 5) Delta and anomalies (API-ready)
 
-Examples:
-- selected 7 days -> compare against previous 7 days
-- selected 30 days -> compare against previous 30 days
-- selected 90 days -> compare against previous 90 days
+MVP backend includes:
 
-Formula:
+- period-over-period delta endpoint
+- z-score anomalies endpoint
 
-```text
-(current_period_volume - previous_period_volume) / previous_period_volume * 100
-```
+Frontend shared hook already fetches these endpoints; расширение визуализации возможно без изменения API контракта.
 
-Requirements:
-- show delta per platform
-- handle divide-by-zero case
-- display positive/negative/neutral states clearly
-- if previous period has no data, show a safe fallback value/state
+## 6) Theme + i18n
 
-## 5. Anomaly peak detection
+- light/dark theme toggle (persisted)
+- RU/EN language switch (persisted)
+- readable contrast in both themes
 
-Highlight unusual volume spikes.
+## 7) CSV export
 
-Method:
-- z-score based anomaly detection
-
-MVP definition:
-- compute z-score on daily volume points within a recent rolling window or selected range
-- mark points above configured threshold as anomalies
-
-Recommended default threshold:
-- z >= 2.5 or z >= 3.0
-
-Requirements:
-- show anomaly markers on the hero chart
-- anomaly logic should be documented and deterministic
-- empty or insufficient data should not break the UI
-
-## 6. Dark mode
-
-Requirements:
-- explicit theme toggle
-- both light and dark themes supported
-- chart rendering should remain readable in both themes
-- theme should persist in local storage
-
-## 7. CSV export
-
-Requirements:
-- export aggregated data, not raw trades
-- export current filtered view
-- include date/platform/category/volume_usd
-- file should reflect selected date range and category filters
-
-CSV schema:
+- экспорт aggregate rows для текущего фильтра
+- schema:
 
 ```text
 date,platform,category,volume_usd
 ```
 
-## 8. UI quality requirements
+## 8) UX requirements
 
-The dashboard must include:
+- loading / error / empty states
+- live updates без full-page reset/scroll jump
+- mobile-first usability (без обязательного horizontal scroll)
 
-- clean modern layout
-- responsive design
-- loading skeletons or loading states
-- clear error states
-- clear empty states
-- accessible labels for controls
-- understandable tooltips or helper text where useful
+## 9) Data assumptions
 
-## 9. Rational data scope for MVP/demo
+- frontend работает только с локальным backend
+- official APIs — основной ingestion source
+- The Graph — fallback для Polymarket
+- Dune snapshot — cached source layer, не замена official ingestion
 
-Use a rational demo-oriented limit:
+## Acceptance checklist
 
-- keep full daily aggregate history for all available fetched data
-- keep only recent raw trades for operational support
-- do not attempt to store unlimited high-frequency raw history if not needed
+1. Chart корректно показывает обе платформы
+2. `7d/30d/90d/all` работают корректно
+3. Category filters применяются везде
+4. Empty-state при пустом category selection
+5. Category comparison показывает absolute + percentage metrics
+6. Source switch (`dune/live`) работает с metadata
+7. Theme toggle + persistence
+8. Language switch + persistence
+9. CSV export соответствует активным фильтрам
+10. Live updates не ломают scroll/state
+11. Проект поднимается локально через `docker compose`
 
-Recommended raw data retention:
-- 30 days
-
-Recommended chart basis:
-- daily volume only
-
-Reason:
-- enough for strong demo value
-- simpler queries
-- lower local resource usage
-- easier debugging
-
-## 10. Public dashboard assumptions
-
-- no login
-- no personalization
-- no per-user saved filters
-- no admin panel in MVP
-
-## 11. Acceptance criteria
-
-The MVP is acceptable only if all of the following are true:
-
-1. Main chart shows both platforms on one graph
-2. Date ranges 7/30/90/all work correctly
-3. Category filters affect chart results
-4. Deselected-all categories show a clear message
-5. Pie chart updates with filters
-6. Delta compares selected period to previous equivalent period
-7. Anomaly peaks are visibly marked
-8. Dark mode works
-9. CSV export downloads current filtered aggregate data
-10. Loading/error/empty states are implemented
-11. The app runs locally with docker-compose

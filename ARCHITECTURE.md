@@ -2,232 +2,137 @@
 
 ## Goal
 
-Build a local public dashboard that compares historical trading volume for two prediction market platforms:
+Собрать локальный аналитический dashboard для сравнения объёмов торгов:
 
 - Polymarket
 - Kalshi
 
-The dashboard must support:
+с двумя режимами источника данных для UI:
 
-- combined hero chart with both platforms on one time-series
-- category filtering
-- market share pie chart by category
-- period-over-period delta
-- anomaly peak detection using z-score
-- dark mode
-- CSV export
-- loading and error states
-- responsive UI
+- `dune` (snapshot cache, по умолчанию)
+- `live` (актуальные данные из локальных агрегатов)
 
-The project is an MVP/demo, but the architecture should be clean and extensible.
-
-## Core decision summary
-
-### Data sources
-- **Polymarket**
-  - primary source: official Polymarket API / CLOB API
-  - fallback source: The Graph
-- **Kalshi**
-  - source: official Kalshi API
-
-### Update model
-- quasi-realtime
-- periodic ingestion with short polling interval
-- use REST polling for MVP
-- if stable websocket support is available, it may be added later without changing the data model
-
-### Database
-- PostgreSQL
-- reason: simpler and faster to ship for MVP/demo
-- raw trades kept only for a rational recent window
-- aggregated data kept for full available history
-
-### Frontend
-- React + Vite
-
-### Deployment
-- local only
-- docker-compose based
-
-### Auth
-- no authentication
-- public dashboard
-
-## Architecture overview
+## High-level
 
 ```text
-Polymarket API/CLOB (primary) ----\
+Polymarket APIs (gamma/data) ----\
                                    \
-                                    -> ingestion service -> normalization -> PostgreSQL -> API -> React/Vite dashboard
+Kalshi API -------------------------> ingestion -> PostgreSQL aggregates -> backend /api -> frontend
                                    /
-The Graph (fallback for PM) -------/
+Polymarket The Graph fallback -----/
 
-Kalshi API ------------------------/
+Dune API (embedded SQL) -> worker -> backend/data/dashboard-cache.json -> backend (source=dune)
 ```
 
 ## Components
 
-## 1. Ingestion service
-
-A Node.js service that periodically fetches new data from both sources.
+## 1) Ingestion (`ingestion`)
 
 Responsibilities:
-- fetch recent markets and trade data
-- retry on transient failures
-- use fallback source for Polymarket when primary source is unavailable
-- deduplicate trades/records
-- normalize platform-specific payloads
-- upsert raw data
-- update aggregates
 
-Recommended interval:
-- every 30-60 seconds for latest data refresh
-- for heavy backfill, use separate batch jobs
+- `sync-markets`: upsert markets по двум платформам
+- `sync-trades`: incremental ingestion трейдов
+- Polymarket fallback на The Graph при ошибке primary
+- `refresh-aggregates`: пересчёт `daily_volume`, `daily_volume_platform_total`, `hourly_volume`
+- `cleanup`: retention сырого трейд-слоя
+- `auto-backfill`: добор истории на старте (с coverage-check для Kalshi)
 
-## 2. Normalization layer
+Key behavior:
 
-Unifies records from both platforms into one internal schema.
+- idempotent upsert
+- cursor/state в `ingestion_state`
+- Kalshi trade sync поддерживает pagination cursor между циклами
+- partial failure в одном источнике не останавливает весь цикл
 
-Responsibilities:
-- unify timestamps
-- unify volume fields into `volume_usd`
-- map source-specific categories/tags to one canonical category set
-- normalize market identifiers
-- ensure data can be compared across platforms
-
-Canonical categories:
-- sports
-- crypto
-- politics
-- geopolitics
-- finance
-- culture
-- tech_science
-- other
-
-Manual mapping is required for MVP.
-
-## 3. Storage layer
-
-PostgreSQL stores:
-- source markets
-- recent raw trades
-- daily aggregates
-- optional hourly aggregates
-- anomaly calculation inputs or cached anomaly results
-
-Design rule:
-- UI should read from aggregate tables, not from raw trades
-
-Reason:
-- predictable performance
-- simpler API queries
-- easier CSV export
-- cleaner frontend logic
-
-Retention rule for MVP:
-- raw trades: keep 30-90 days
-- aggregated daily volume: keep full history
-- aggregated hourly volume: optional, shorter retention
-
-## 4. API layer
-
-A Node.js backend exposes analytics endpoints for the frontend.
+## 2) Dune snapshot worker (`worker`)
 
 Responsibilities:
-- serve aggregated volume series
-- serve delta values
-- serve category share data
-- serve anomalies
-- serve CSV export
-- validate filters and date ranges
-- return structured errors
 
-The API must not directly proxy upstream platform APIs to the UI.
+- выполняет embedded SQL через Dune API (`/sql/execute`)
+- polling статуса execution и сбор paginated results
+- строит единый snapshot JSON c schema version
+- записывает кэш-файл (`dashboard-cache.json`) для backend
+- работает в цикле с hourly refresh
 
-## 5. Frontend
+Important:
 
-React + Vite application.
+- используется `mode=embedded_sql`
+- `queryIds=null`
+- retry + timeout + jitter
+
+## 3) Storage (PostgreSQL)
+
+Основные таблицы:
+
+- `source_markets`
+- `raw_trades`
+- `daily_volume`
+- `daily_volume_platform_total`
+- `hourly_volume`
+- `ingestion_state`
+
+Rule:
+
+- API/UI работает с агрегатами; `raw_trades` — operational слой.
+
+## 4) Backend API (`backend`)
 
 Responsibilities:
-- render hero chart
-- render category filters
-- render period selectors
-- render pie chart
-- render delta cards
-- render anomaly markers
-- render empty/loading/error states
-- support dark mode
-- support CSV export
+
+- query validation (`zod`)
+- analytics endpoints
+- short TTL in-memory cache
+- source selection (`dune|live`)
+- fallback matrix:
+  - `dune -> live`
+  - `live -> last good cache`
+- SSE stream для live refresh signal
+- CORS-risk validation на старте
+
+## 5) Frontend (`frontend`)
+
+Responsibilities:
+
+- фильтры range/source/category
+- hero volume chart (line/bar)
+- category comparison (desktop table + mobile cards)
+- CSV export
+- dark/light theme
+- RU/EN switch
+- SSE-based live refresh без scroll reset
 
 ## Data flow
 
-### Historical flow
-1. fetch historical data from both platforms
-2. normalize
-3. store raw data
-4. compute daily aggregates
-5. expose aggregated endpoints
-6. render dashboard
+## Startup
 
-### Incremental flow
-1. fetch new markets/trades since last cursor/time
-2. normalize and deduplicate
-3. upsert
-4. update affected aggregates only
-5. frontend refetches or polls API
+1. `worker` начинает refresh snapshot loop
+2. `ingestion` выполняет `auto-backfill`, затем `market-sync` и `trade-sync`
+3. `refresh-aggregates`
+4. `backend` отдаёт API с source metadata
+5. `frontend` рендерит `source=dune` по умолчанию и может переключиться на `live`
 
-## Why this architecture
+## Request path (`/api/analytics/*`)
 
-This architecture is intentionally different from a snapshot demo.
+1. parse filters (`range`, `source`, `categories`, `platforms`)
+2. route-level short cache
+3. source resolution:
+   - `source=dune`: читаем snapshot file
+   - если snapshot пуст/недоступен -> fallback на `live`
+   - `source=live`: читаем local aggregates
+   - если live пуст, возвращаем `last good live cache`
+4. ответ включает `snapshot` и `source_meta`
 
-It avoids:
-- frontend reading directly from external APIs
-- one-off JSON cache files as source of truth
-- hard dependency on third-party dashboards
-- inability to compare both platforms consistently
+## Finite ranges
 
-It supports:
-- platform comparison
-- category-based filtering
-- CSV export
-- anomaly analytics
-- extensibility beyond the MVP
+Для `7d/30d/90d`:
 
-## MVP constraints
+- окно строится от текущего UTC дня
+- backend выполняет day-padding до нулей
 
-This is a demo, so keep it rational:
+## Design principles
 
-- Use PostgreSQL, not ClickHouse
-- Use daily aggregates for the main chart
-- Use raw trade retention limits
-- Use manual category mapping
-- Use polling first, websocket later if needed
-- Run everything locally through docker-compose
-
-## Recommended services
-
-- `frontend` — React + Vite
-- `backend` — Node.js API
-- `ingestion` — Node.js worker
-- `postgres` — PostgreSQL
-- optional `nginx` — local reverse proxy only if needed
-
-## Non-goals for MVP
-
-- user accounts
-- watchlists
-- alerting
-- distributed ingestion
-- multi-tenant architecture
-- production deployment
-- advanced RBAC
-- heavy observability stack
-
-## Design rule
-
-External APIs are **inputs**, not the application's data layer.
-
-The application's data layer is:
-
-`source APIs -> normalization -> own DB -> aggregates -> own API -> UI`
+- Frontend не ходит во внешние API.
+- Локальный backend — единый data contract для UI.
+- Official APIs остаются основным ingestion path.
+- Dune snapshot — cached source для быстрых ответов и старой истории.
+- Документированная деградация важнее, чем "silent fail".

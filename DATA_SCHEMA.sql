@@ -87,6 +87,19 @@ CREATE TABLE IF NOT EXISTS daily_volume_platform_total (
     PRIMARY KEY (day, platform)
 );
 
+CREATE TABLE IF NOT EXISTS hourly_volume (
+    hour_ts TIMESTAMPTZ NOT NULL,
+    platform TEXT NOT NULL CHECK (platform IN ('polymarket', 'kalshi')),
+    canonical_category TEXT NOT NULL,
+    volume_usd NUMERIC(20,10) NOT NULL DEFAULT 0,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (hour_ts, platform, canonical_category)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hourly_volume_platform_hour
+    ON hourly_volume(platform, hour_ts);
+
 CREATE TABLE IF NOT EXISTS daily_volume_anomalies (
     day DATE NOT NULL,
     platform TEXT NOT NULL CHECK (platform IN ('polymarket', 'kalshi')),

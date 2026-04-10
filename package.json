@@ -5,12 +5,15 @@
   "workspaces": [
     "backend",
     "ingestion",
-    "frontend"
+    "frontend",
+    "worker"
   ],
   "scripts": {
     "dev:backend": "npm run dev --workspace backend",
     "dev:ingestion": "npm run dev --workspace ingestion",
     "dev:frontend": "npm run dev --workspace frontend",
+    "dev:worker": "npm run dev --workspace worker",
+    "refresh:dune-cache": "npm run refresh --workspace worker",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces"
   }

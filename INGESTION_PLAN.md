@@ -1,114 +1,93 @@
-# Ingestion Plan
+# Ingestion Plan (Current)
 
 ## Goal
 
-Fetch quasi-realtime market and trade data from:
+Собирать near-realtime данные рынков и сделок из официальных API Polymarket/Kalshi, нормализовать, хранить в PostgreSQL и поддерживать агрегаты для backend analytics.
 
-- Polymarket official API / CLOB API
-- The Graph as fallback for Polymarket
-- Kalshi official API
-
-Then normalize and persist data into PostgreSQL.
-
-## Strategy
-
-## 1. General principles
-
-- polling-based ingestion for MVP
-- short interval, e.g. every 30-60 seconds
-- one worker process is enough for the demo
-- use idempotent upserts
-- store recent raw data + maintain aggregate tables
-- isolate source adapters from normalization logic
-
-## 2. Source priority
+## Sources
 
 ## Polymarket
+
 Primary:
-- official Polymarket API / CLOB API
+
+- `POLYMARKET_GAMMA_BASE` (markets)
+- `POLYMARKET_DATA_BASE` (trades)
 
 Fallback:
-- The Graph
+
+- `POLYMARKET_GRAPH_URL` (The Graph)
 
 Rule:
-- try official Polymarket source first
-- if request fails or data is unavailable, fallback to The Graph
-- log which source was used
+
+1. primary first
+2. при ошибке primary — fallback
+3. логируем источник и результат
 
 ## Kalshi
+
 Primary:
-- official Kalshi API
 
-No third-party analytical source should be used as the primary data source for Kalshi.
+- `KALSHI_API_BASE` (official Trade API v2)
 
-## 3. Ingestion jobs
+Rule:
 
-Split into logical jobs.
+- только официальный API
+- incremental sync по cursor/time-window
 
-### A. Market sync job
-Runs less frequently, for example every 5-15 minutes.
+## Runtime model
 
-Responsibilities:
-- fetch active/recent markets
-- fetch market metadata
-- update category mapping inputs
-- upsert into `source_markets`
+- polling worker (`INGESTION_POLL_SECONDS`, default 60)
+- startup `auto-backfill`
+- periodic `market-sync` + `trade-sync`
+- periodic `cleanup`
 
-### B. Trade sync job
-Runs every 30-60 seconds.
+## Startup sequence
 
-Responsibilities:
-- fetch recent trades since last cursor/timestamp
-- normalize trade records
-- upsert into `raw_trades`
-- update aggregate tables
+1. DB connect
+2. `auto-backfill`
+3. `market-sync`
+4. `trade-sync`
+5. `refresh-aggregates`
+6. schedule loops
 
-### C. Aggregate refresh job
-Runs after trade sync or as a small scheduled task.
+## Implemented jobs
 
-Responsibilities:
-- recompute affected `daily_volume`
-- recompute `daily_volume_platform_total`
-- recompute anomaly cache for affected recent windows
+## 1) `sync-markets`
 
-### D. Cleanup job
-Runs daily.
+- fetch markets per platform
+- normalize
+- idempotent upsert в `source_markets`
 
-Responsibilities:
-- delete raw trades older than retention window
-- keep aggregates
-- vacuum/analyze optional if needed
+## 2) `sync-trades`
 
-## 4. Rational retention
+- incremental fetch трейдов
+- normalize
+- idempotent upsert в `raw_trades`
+- update state в `ingestion_state`
+- Kalshi поддерживает pagination cursor continuation между циклами
 
-For MVP:
-- raw trades retention: 30 days
-- daily aggregates: full history
-- anomaly cache: full or recent as preferred
+## 3) `refresh-aggregates`
 
-This is enough for demo value while keeping storage reasonable.
+Пересчёт:
 
-## 5. Normalization model
+- `daily_volume`
+- `daily_volume_platform_total`
+- `hourly_volume`
 
-Normalize both sources into a common trade object:
+## 4) `cleanup`
 
-```ts
-type NormalizedTrade = {
-  id: string;
-  platform: 'polymarket' | 'kalshi';
-  sourceTradeId: string;
-  marketId: string;
-  tradeTs: string;
-  price?: string;
-  size?: string;
-  volumeUsd: string;
-  side?: string;
-  outcome?: string;
-  metadata?: Record<string, unknown>;
-}
-```
+- удаление старых `raw_trades` по retention policy
 
-Normalize both sources into a common market object:
+## 5) `auto-backfill`
+
+- добор истории на старте
+- idempotent
+- поддерживает `AUTO_BACKFILL_*` tuning
+- включает coverage logic для Kalshi (может повторно запускаться при низком покрытии)
+
+## Normalization
+
+## `NormalizedMarket`
 
 ```ts
 type NormalizedMarket = {
@@ -126,14 +105,29 @@ type NormalizedMarket = {
   resolutionTime?: string;
   url?: string;
   metadata?: Record<string, unknown>;
-}
+};
 ```
 
-## 6. Category mapping
+## `NormalizedTrade`
 
-MVP uses manual mapping only.
+```ts
+type NormalizedTrade = {
+  id: string;
+  platform: 'polymarket' | 'kalshi';
+  sourceTradeId: string;
+  marketId: string;
+  tradeTs: string;
+  price?: string;
+  size?: string;
+  volumeUsd: string;
+  side?: string;
+  outcome?: string;
+  metadata?: Record<string, unknown>;
+};
+```
 
-Canonical values:
+## Canonical categories
+
 - sports
 - crypto
 - politics
@@ -143,110 +137,18 @@ Canonical values:
 - tech_science
 - other
 
-Implementation rule:
-- perform mapping in application code, not only in SQL
-- keep mapping rules explicit and editable
-- default unknown values to `other`
+Unknown/missed mapping -> `other`.
 
-Recommended order:
-1. explicit source category match
-2. title/description keyword match
-3. fallback to `other`
+## Reliability
 
-## 7. Aggregate update logic
+- per-source failure isolation
+- partial failure не останавливает весь цикл
+- cursor/state persistence
+- safe retries через следующий polling cycle
 
-The UI should query aggregate tables only.
+## Data contract for backend
 
-Daily aggregate formula:
-- sum `volume_usd` grouped by:
-  - day
-  - platform
-  - canonical_category
+- backend читает агрегаты, не `raw_trades`
+- finite ranges строятся от текущего UTC дня
+- snapshot/live source resolution выполняется в backend (не в ingestion)
 
-Also maintain optional per-platform daily totals.
-
-Incremental update approach:
-- determine affected days from newly ingested trades
-- recompute aggregates only for those affected days
-- avoid full-table recalculation on every sync
-
-## 8. Delta calculation support
-
-Delta compares selected period to previous equivalent period.
-
-API may compute it on request using aggregate tables.
-No need to precompute all deltas in DB for MVP.
-
-Example:
-- selected range = last 30 days
-- previous range = prior 30-day block
-
-## 9. Anomaly detection support
-
-Use z-score on daily platform totals.
-
-MVP recommendation:
-- calculate anomalies on daily platform totals, not raw trades
-- optionally recalculate last 90 days after each update
-- store result in `daily_volume_anomalies`
-
-Basic idea:
-1. fetch recent daily volumes per platform
-2. compute mean and standard deviation
-3. compute z-score per point
-4. mark as anomaly when z-score >= threshold
-
-Recommended threshold:
-- 2.5 or 3.0
-
-## 10. Idempotency rules
-
-All ingestion must be idempotent.
-
-Rules:
-- use source trade ids when available
-- use stable synthetic ids when source ids are missing
-- upsert markets
-- ignore duplicate trades
-- never double-count aggregates
-
-## 11. Failure handling
-
-Rules:
-- if Polymarket primary source fails, fallback to The Graph
-- if both fail, do not stop Kalshi ingestion
-- partial source failure must not corrupt aggregates
-- record ingestion state and timestamps
-- log source, cursor, duration, and error reason
-
-## 12. Recommended module structure
-
-```text
-backend/
-  src/
-    ingestion/
-      adapters/
-        kalshi.ts
-        polymarket.ts
-        polymarket-graph-fallback.ts
-      normalize/
-        market.ts
-        trade.ts
-        category-mapper.ts
-      jobs/
-        sync-markets.ts
-        sync-trades.ts
-        refresh-aggregates.ts
-        cleanup.ts
-      state/
-        cursor-store.ts
-```
-
-## 13. Rule for Codex implementation
-
-Do not implement the dashboard as:
-- direct frontend calls to external APIs
-- static JSON snapshot files as source of truth
-
-Implement it as:
-- ingestion -> own DB -> aggregate queries -> own API -> frontend

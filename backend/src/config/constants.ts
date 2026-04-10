@@ -1,6 +1,9 @@
 export const RANGE_PRESETS = ["7d", "30d", "90d", "all"] as const;
 export type RangePreset = (typeof RANGE_PRESETS)[number];
 
+export const DATA_SOURCES = ["dune", "live"] as const;
+export type DataSource = (typeof DATA_SOURCES)[number];
+
 export const PLATFORMS = ["polymarket", "kalshi"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 

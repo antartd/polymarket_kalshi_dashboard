@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
   CATEGORIES,
+  DATA_SOURCES,
   PLATFORMS,
   RANGE_PRESETS,
   type CanonicalCategory,
+  type DataSource,
   type Platform,
   type RangePreset,
 } from "../config/constants.js";
@@ -11,6 +13,7 @@ import { HttpError } from "./errors.js";
 
 const querySchema = z.object({
   range: z.enum(RANGE_PRESETS).optional().default("30d"),
+  source: z.enum(DATA_SOURCES).optional().default("dune"),
   categories: z.string().optional(),
   platforms: z.string().optional(),
   threshold: z.coerce.number().min(0).max(10).optional(),
@@ -33,6 +36,7 @@ function parseCsvParam(rawValue: string | undefined): string[] | undefined {
 
 export type ParsedFilters = {
   range: RangePreset;
+  source: DataSource;
   categories: CanonicalCategory[];
   platforms: Platform[];
   threshold?: number;
@@ -63,6 +67,7 @@ export function parseFilters(query: unknown): ParsedFilters {
 
   return {
     range: parsed.data.range,
+    source: parsed.data.source,
     categories: categories as CanonicalCategory[],
     platforms: platforms as Platform[],
     threshold: parsed.data.threshold,

@@ -3,6 +3,7 @@ import type {
   CategoryShareResponse,
   DashboardFilters,
   DeltaResponse,
+  LastUpdatedResponse,
   VolumeResponse,
 } from "../types/dashboard";
 
@@ -11,6 +12,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api
 function buildQuery(filters: DashboardFilters): string {
   const params = new URLSearchParams();
   params.set("range", filters.range);
+  params.set("source", filters.source);
   params.set("categories", filters.categories.join(","));
   params.set("platforms", filters.platforms.join(","));
   return params.toString();
@@ -42,4 +44,12 @@ export async function fetchAnomalies(filters: DashboardFilters): Promise<Anomaly
 
 export function getExportCsvUrl(filters: DashboardFilters): string {
   return `${API_BASE}/analytics/export.csv?${buildQuery(filters)}`;
+}
+
+export async function fetchLastUpdated(): Promise<LastUpdatedResponse> {
+  return fetchJson<LastUpdatedResponse>("/analytics/last-updated");
+}
+
+export function getAnalyticsStreamUrl(): string {
+  return `${API_BASE}/analytics/stream`;
 }

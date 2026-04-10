@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dashboard}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dashboard}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
@@ -18,24 +18,27 @@ services:
       retries: 10
 
   backend:
-    image: node:20-alpine
+    image: node:20-slim
     container_name: pm-kalshi-backend
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     environment:
       NODE_ENV: development
       PORT: ${BACKEND_PORT:-4000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://127.0.0.1:5173}
       DATABASE_URL: postgres://${POSTGRES_USER:-dashboard}:${POSTGRES_PASSWORD:-dashboard}@postgres:5432/${POSTGRES_DB:-dashboard}
+      DUNE_API_KEY: ${DUNE_API_KEY:-}
+      DUNE_SNAPSHOT_FILE: ${DUNE_SNAPSHOT_FILE:-/app/data/dashboard-cache.json}
     volumes:
       - ./backend:/app
     ports:
-      - "${BACKEND_PORT:-4000}:4000"
+      - "127.0.0.1:${BACKEND_PORT:-4000}:4000"
     depends_on:
       postgres:
         condition: service_healthy
 
   ingestion:
-    image: node:20-alpine
+    image: node:20-slim
     container_name: pm-kalshi-ingestion
     working_dir: /app
     command: sh -c "npm install && npm run dev"
@@ -44,16 +47,50 @@ services:
       POLL_SECONDS: ${INGESTION_POLL_SECONDS:-60}
       DATABASE_URL: postgres://${POSTGRES_USER:-dashboard}:${POSTGRES_PASSWORD:-dashboard}@postgres:5432/${POSTGRES_DB:-dashboard}
       POLYMARKET_API_BASE: ${POLYMARKET_API_BASE:-https://clob.polymarket.com}
+      POLYMARKET_GAMMA_BASE: ${POLYMARKET_GAMMA_BASE:-https://gamma-api.polymarket.com}
+      POLYMARKET_DATA_BASE: ${POLYMARKET_DATA_BASE:-https://data-api.polymarket.com}
       POLYMARKET_GRAPH_URL: ${POLYMARKET_GRAPH_URL:-https://api.thegraph.com/subgraphs/name/polymarket/matic-markets}
       KALSHI_API_BASE: ${KALSHI_API_BASE:-https://api.elections.kalshi.com/trade-api/v2}
+      AUTO_BACKFILL_PAGE_LIMIT: ${AUTO_BACKFILL_PAGE_LIMIT:-500}
+      AUTO_BACKFILL_MAX_PAGES: ${AUTO_BACKFILL_MAX_PAGES:-200}
+      AUTO_BACKFILL_PER_MARKET_MAX_PAGES: ${AUTO_BACKFILL_PER_MARKET_MAX_PAGES:-6}
+      AUTO_BACKFILL_MARKETS_PER_PLATFORM: ${AUTO_BACKFILL_MARKETS_PER_PLATFORM:-120}
+      AUTO_BACKFILL_FORCE: ${AUTO_BACKFILL_FORCE:-0}
+      AUTO_BACKFILL_REQUIRE_KALSHI_COVERAGE: ${AUTO_BACKFILL_REQUIRE_KALSHI_COVERAGE:-1}
+      AUTO_BACKFILL_MIN_KALSHI_TRADES: ${AUTO_BACKFILL_MIN_KALSHI_TRADES:-5000}
+      AUTO_BACKFILL_MIN_KALSHI_DAYS: ${AUTO_BACKFILL_MIN_KALSHI_DAYS:-14}
+      AUTO_BACKFILL_MIN_KALSHI_MARKETS: ${AUTO_BACKFILL_MIN_KALSHI_MARKETS:-100}
+      AUTO_BACKFILL_REFRESH_EVERY_REQUESTS: ${AUTO_BACKFILL_REFRESH_EVERY_REQUESTS:-40}
     volumes:
       - ./ingestion:/app
     depends_on:
       postgres:
         condition: service_healthy
 
+  worker:
+    image: node:20-slim
+    container_name: pm-kalshi-worker
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    environment:
+      NODE_ENV: development
+      DUNE_API_KEY: ${DUNE_API_KEY:-}
+      DUNE_BASE_URL: ${DUNE_BASE_URL:-https://api.dune.com/api/v1}
+      DUNE_PERFORMANCE: ${DUNE_PERFORMANCE:-medium}
+      OUTPUT_FILE: ${DUNE_WORKER_OUTPUT_FILE:-/cache/data/dashboard-cache.json}
+      POLL_INTERVAL_MS: ${DUNE_POLL_INTERVAL_MS:-2000}
+      POLL_MAX_ATTEMPTS: ${DUNE_POLL_MAX_ATTEMPTS:-90}
+      RESULTS_PAGE_LIMIT: ${DUNE_RESULTS_PAGE_LIMIT:-5000}
+      REFRESH_INTERVAL_HOURS: ${DUNE_REFRESH_INTERVAL_HOURS:-1}
+      REQUEST_TIMEOUT_MS: ${DUNE_REQUEST_TIMEOUT_MS:-15000}
+      REQUEST_RETRY_ATTEMPTS: ${DUNE_REQUEST_RETRY_ATTEMPTS:-3}
+      REQUEST_RETRY_BASE_MS: ${DUNE_REQUEST_RETRY_BASE_MS:-300}
+    volumes:
+      - ./worker:/app
+      - ./backend:/cache
+
   frontend:
-    image: node:20-alpine
+    image: node:20-slim
     container_name: pm-kalshi-frontend
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
@@ -62,7 +99,7 @@ services:
     volumes:
       - ./frontend:/app
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     depends_on:
       - backend
 

@@ -9,6 +9,14 @@ export async function getCursor(sourceName: string): Promise<string | null> {
   return result.rows[0]?.cursor_value ?? null;
 }
 
+export async function getStateMetadata(sourceName: string): Promise<Record<string, unknown> | null> {
+  const result = await pool.query<{ metadata: Record<string, unknown> | null }>(
+    "SELECT metadata FROM ingestion_state WHERE source_name = $1",
+    [sourceName],
+  );
+  return result.rows[0]?.metadata ?? null;
+}
+
 export async function setCursor(sourceName: string, cursorValue: string | null, metadata: unknown = {}) {
   await pool.query(
     `

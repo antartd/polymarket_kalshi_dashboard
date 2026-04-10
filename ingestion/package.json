@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "backfill": "tsx src/backfill.ts",
+    "backfill:kalshi-history": "tsx src/scripts/kalshi-historical-backfill.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"

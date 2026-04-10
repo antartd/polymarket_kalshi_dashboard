@@ -1,64 +1,123 @@
-# Polymarket vs Kalshi Dashboard (MVP)
+# Polymarket vs Kalshi Dashboard
 
-Local demo dashboard comparing aggregated trading volume between Polymarket and Kalshi.
+Локальный аналитический дашборд для сравнения объёмов торгов между **Polymarket** и **Kalshi**.
 
-## Stack
+Текущая схема:
 
-- `frontend`: React + Vite + TypeScript
-- `backend`: Node.js + Express + PostgreSQL queries
-- `ingestion`: Node.js worker (polling, fallback-ready skeleton)
-- `postgres`: local PostgreSQL (schema initialized from `DATA_SCHEMA.sql`)
+`official APIs + Dune snapshot worker -> ingestion -> PostgreSQL -> backend API -> frontend`
 
-## Quick Start
+## Что реализовано
 
-1. Copy env template:
-
-```bash
-cp .env.example .env
-```
-
-2. Start all services:
-
-```bash
-docker compose up --build
-```
-
-3. Open:
-
-- Frontend: `http://localhost:5173`
-- Backend health: `http://localhost:4000/api/health`
-
-## Implemented so far
-
-- Monorepo structure with `backend`, `ingestion`, `frontend`
-- Docker Compose with Postgres + app services
-- DB init via `postgres/init.sql`
-- Backend API endpoints:
-  - `GET /api/health`
+- Monorepo c сервисами:
+  - `frontend` (React + Vite + TypeScript + Recharts)
+  - `backend` (Node.js + Express + PostgreSQL)
+  - `ingestion` (Node.js polling worker)
+  - `worker` (Dune embedded SQL snapshot refresher)
+- PostgreSQL схема/инициализация: `postgres/init.sql`, `DATA_SCHEMA.sql`
+- Реальные source adapters:
+  - Polymarket: `gamma-api`, `data-api`
+  - Polymarket fallback: The Graph
+  - Kalshi: official Trade API v2
+- Ingestion pipeline:
+  - `sync-markets`
+  - `sync-trades`
+  - `refresh-aggregates` (`daily_volume`, `daily_volume_platform_total`, `hourly_volume`)
+  - `cleanup`
+  - startup `auto-backfill`
+- Backend analytics API:
   - `GET /api/analytics/volume`
   - `GET /api/analytics/category-share`
   - `GET /api/analytics/delta`
   - `GET /api/analytics/anomalies`
   - `GET /api/analytics/export.csv`
-- Query validation for range/categories/platforms/threshold
-- Stable empty-state behavior for all-categories-disabled
-- Frontend dashboard page with:
-  - range selector
-  - platform/category filters
-  - hero line chart
-  - delta cards
-  - category share pie chart
-  - dark mode toggle (persisted in `localStorage`)
-  - CSV export button
-  - loading/error/empty states
-- Ingestion worker skeleton with scheduled jobs:
-  - market sync
-  - trade sync
-  - aggregate refresh
-  - cleanup
-  - Polymarket fallback path placeholder (`official -> graph fallback`)
+  - `GET /api/analytics/last-updated`
+  - `GET /api/analytics/stream` (SSE)
+- Source selection и fallback matrix:
+  - `source=dune` по умолчанию
+  - `dune -> live` если snapshot недоступен/пуст
+  - `live -> last good cache` при пустом live-ответе
+- Frontend:
+  - диапазоны `7d/30d/90d/all`
+  - source switch (`Dune Snapshot` / `Live API`)
+  - category filters
+  - hero chart (line/bar switch, platform toggles, rich tooltip)
+  - category comparison (desktop table + mobile card layout)
+  - CSV export
+  - light/dark mode
+  - RU/EN language switch
+  - live updates без сброса скролла/страницы
 
-## Notes
+## Быстрый старт
 
-- Adapters currently return placeholder payloads; next step is wiring real API integrations for Polymarket and Kalshi.
-- Aggregation refresh and retention are implemented and can run once normalized trades/markets are ingested.
+1. Скопировать env:
+
+```bash
+cp .env.example .env
+```
+
+2. Запустить проект:
+
+```bash
+docker compose up --build
+```
+
+3. Открыть:
+
+- Frontend: `http://localhost:5173`
+- Backend health: `http://localhost:4000/api/health`
+
+## Ключевые env
+
+### Core
+
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_PORT`
+- `BACKEND_PORT`
+- `CORS_ORIGIN`
+
+### Ingestion
+
+- `INGESTION_POLL_SECONDS`
+- `POLYMARKET_GAMMA_BASE`
+- `POLYMARKET_DATA_BASE`
+- `POLYMARKET_GRAPH_URL`
+- `KALSHI_API_BASE`
+- `AUTO_BACKFILL_*` параметры
+
+### Dune worker/backend snapshot
+
+- `DUNE_API_KEY`
+- `DUNE_BASE_URL` (default: `https://api.dune.com/api/v1`)
+- `DUNE_PERFORMANCE`
+- `DUNE_SNAPSHOT_FILE`
+- `DUNE_WORKER_OUTPUT_FILE`
+- `DUNE_*` polling/retry/timeout vars
+
+## Команды
+
+- Запуск: `docker compose up --build`
+- Остановка: `docker compose down`
+- Typecheck всех workspaces: `npm run typecheck`
+- Ручной backfill ingestion:
+
+```bash
+npm run backfill --workspace ingestion
+```
+
+- Исторический backfill Kalshi:
+
+```bash
+npm run backfill:kalshi-history --workspace ingestion
+```
+
+- Одноразовый refresh Dune snapshot:
+
+```bash
+npm run refresh:dune-cache
+```
+
+## Принципы данных
+
+- Frontend работает только через local backend `/api`.
+- Источник истины для UI — backend responses + DB/snapshot.
+- Для finite ranges (`7d/30d/90d`) backend строит окно от `today - range + 1` и day-padding до нулей.
+- Dune snapshot используется как fast cached source; live остаётся operational источником и прогревается в фоне.

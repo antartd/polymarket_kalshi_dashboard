@@ -1,50 +1,50 @@
 # Codex Instruction Bundle
 
-This folder contains the project instructions for implementing a local MVP dashboard that compares Polymarket and Kalshi trading volume.
+Репозиторий содержит реализацию локального dashboard `Polymarket vs Kalshi`.
 
-Included files:
+## Документы
+
+- `README.md`
 - `ARCHITECTURE.md`
-- `MVP_SPEC.md`
-- `DATA_SCHEMA.sql`
-- `INGESTION_PLAN.md`
 - `API_SPEC.md`
 - `FRONTEND_SPEC.md`
+- `INGESTION_PLAN.md`
+- `MVP_SPEC.md`
 - `TASKS.md`
+- `DATA_SCHEMA.sql`
 
-## Implementation priorities
+## Runtime services
 
-This is a demo-first project, but it must be implemented with a real architecture:
+- `frontend`
+- `backend`
+- `ingestion`
+- `worker` (Dune embedded SQL snapshot refresher)
+- `postgres`
 
-- React + Vite frontend
-- Node.js backend/API
-- Node.js ingestion worker
-- PostgreSQL
-- local docker-compose setup
-- no authentication
-- public dashboard
+## Current key rules
 
-## Critical rules
+1. Official APIs — primary ingestion path.
+2. Polymarket fallback: The Graph.
+3. Kalshi: official API only.
+4. Frontend работает только через local backend `/api`.
+5. Backend source modes:
+   - `dune` (default)
+   - `live`
+6. Fallback matrix:
+   - `dune -> live`
+   - `live -> last good cache`
+7. Dune используется через embedded SQL (без `query_id`), snapshot-файл обновляет `worker`.
+8. Analytics API читает агрегаты/снимок, не upstream payloads.
+9. UI: mobile responsive, dark/light, RU/EN.
 
-1. Do not use Dune or third-party dashboards as the application's data layer
-2. For Polymarket:
-   - use official API/CLOB API first
-   - use The Graph only as fallback
-3. For Kalshi:
-   - use official Kalshi API
-4. Frontend must query only the local backend API
-5. Use aggregate tables for dashboard queries
-6. Manual category mapping is required for MVP
-7. Delta compares selected period vs previous equivalent period
-8. Anomalies use z-score
-9. CSV export must export aggregate data for the current filtered view
-10. Implement clear loading, empty, and error states
+## Implementation order (already applied)
 
-## Suggested first implementation order
+1. DB schema + init
+2. adapters + normalization
+3. ingestion jobs + auto-backfill
+4. aggregates refresh
+5. backend analytics + SSE + cache
+6. Dune snapshot worker
+7. frontend dashboard + i18n + responsive layout
+8. docker-compose local runtime
 
-1. PostgreSQL schema
-2. source adapters
-3. ingestion jobs
-4. aggregate refresh logic
-5. backend analytics endpoints
-6. React dashboard UI
-7. docker-compose and local run flow
