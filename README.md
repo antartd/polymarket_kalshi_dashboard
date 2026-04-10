@@ -1,6 +1,10 @@
 # Polymarket vs Kalshi Dashboard
 
 Локальный аналитический дашборд для сравнения объёмов торгов между **Polymarket** и **Kalshi**.
+<img width="1822" height="1180" alt="Снимок экрана 2026-04-10 в 03 51 33" src="https://github.com/user-attachments/assets/12b4e2b2-5462-4528-b0bb-f1b54d681e9c" />
+<img width="1822" height="1180" alt="Снимок экрана 2026-04-10 в 03 51 50" src="https://github.com/user-attachments/assets/f5890087-ea41-4e5f-b261-5d999fa9fdd5" />
+<img width="1822" height="1180" alt="Снимок экрана 2026-04-10 в 03 52 01" src="https://github.com/user-attachments/assets/cff69d1d-308a-4f9b-8bff-a878dabd3797" />
+<img width="1822" height="1180" alt="Снимок экрана 2026-04-10 в 03 51 09" src="https://github.com/user-attachments/assets/cb63ba82-62c4-4ec6-839d-4dcb781b792d" />
 
 Текущая схема:
 
